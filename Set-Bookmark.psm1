@@ -1,5 +1,138 @@
 $configPath = "$Env:USERPROFILE\.config\Set-Bookmark\bookmarks.json"
 
+$qwertyProximity = @{
+  'q' = @('w', 'a')
+  'w' = @('q', 'e', 'a', 's')
+  'e' = @('w', 'r', 's', 'd')
+  'r' = @('e', 't', 'd', 'f')
+  't' = @('r', 'y', 'f', 'g')
+  'y' = @('t', 'u', 'g', 'h')
+  'u' = @('y', 'i', 'h', 'j')
+  'i' = @('u', 'o', 'j', 'k')
+  'o' = @('i', 'p', 'k', 'l')
+  'p' = @('o', 'l')
+  'a' = @('q', 'w', 's', 'z')
+  's' = @('a', 'w', 'e', 'd', 'z', 'x')
+  'd' = @('s', 'e', 'r', 'f', 'x', 'c')
+  'f' = @('d', 'r', 't', 'g', 'c', 'v')
+  'g' = @('f', 't', 'y', 'h', 'v', 'b')
+  'h' = @('g', 'y', 'u', 'j', 'b', 'n')
+  'j' = @('h', 'u', 'i', 'k', 'n', 'm')
+  'k' = @('j', 'i', 'o', 'l', 'm')
+  'l' = @('k', 'o', 'p')
+  'z' = @('a', 's', 'x')
+  'x' = @('z', 's', 'd', 'c')
+  'c' = @('x', 'd', 'f', 'v')
+  'v' = @('c', 'f', 'g', 'b')
+  'b' = @('v', 'g', 'h', 'n')
+  'n' = @('b', 'h', 'j', 'm')
+  'm' = @('n', 'j', 'k')
+}
+
+function Test-QWERTYNeighbor {
+  param (
+    [char]$char1,
+    [char]$char2
+  )
+
+  # Convert char to string and then use ToLower() with parentheses
+  $char1 = ([string]$char1).ToLower()
+  $char2 = ([string]$char2).ToLower()
+
+  if ($qwertyProximity.ContainsKey($char1)) {
+    return $qwertyProximity[$char1] -contains $char2
+  }
+  return $false
+}
+
+
+
+function Get-LevenshteinDistance {
+  param (
+    [string]$source,
+    [string]$target
+  )
+
+  $sourceLength = $source.Length
+  $targetLength = $target.Length
+
+  # Initialize a matrix of size (sourceLength+1) x (targetLength+1)
+  $distanceMatrix = @()
+
+  for ($i = 0; $i -le $sourceLength; $i++) {
+    $row = @()
+    for ($j = 0; $j -le $targetLength; $j++) {
+      $row += 0
+    }
+    $distanceMatrix += , $row
+  }
+
+  # Set up the initial row and column
+  for ($i = 0; $i -le $sourceLength; $i++) {
+    $distanceMatrix[$i][0] = $i
+  }
+  for ($j = 0; $j -le $targetLength; $j++) {
+    $distanceMatrix[0][$j] = $j
+  }
+
+  # Compute the Levenshtein distance
+  for ($i = 1; $i -le $sourceLength; $i++) {
+    for ($j = 1; $j -le $targetLength; $j++) {
+      $cost = if ($source[$i - 1] -eq $target[$j - 1]) { 0 } else { 1 }
+
+      $distanceMatrix[$i][$j] = [math]::Min(
+        [math]::Min($distanceMatrix[$i - 1][$j] + 1, $distanceMatrix[$i][$j - 1] + 1),
+        $distanceMatrix[$i - 1][$j - 1] + $cost
+      )
+    }
+  }
+
+  return $distanceMatrix[$sourceLength][$targetLength]
+}
+
+
+function Get-ClosestMatch {
+  param (
+    [string]$inputString,
+    [hashtable]$bookmarks
+  )
+
+  $closest = $null
+  $shortestDistance = [int]::MaxValue
+  $inputLength = $inputString.Length
+
+  # Handle single character input
+  if ($inputLength -eq 1) {
+    # Get the QWERTY neighbors for the input character
+    $neighbors = $qwertyProximity[$inputString.ToLower()]
+      
+    foreach ($key in $bookmarks.Keys) {
+      if ($key.Length -eq 1 -and ($neighbors -contains $key.ToLower())) {
+        return $key  # Immediately return the first match found
+      }
+    }
+  }
+
+  # Fallback to Levenshtein distance for multi-character input or no QWERTY match
+  foreach ($key in $bookmarks.Keys) {
+    $distance = Get-LevenshteinDistance -source $inputString -target $key
+    if ($distance -lt $shortestDistance) {
+      $shortestDistance = $distance
+      $closest = $key
+    }
+    elseif ($distance -eq $shortestDistance) {
+      # Prefer the longer string
+      if ($closest -and $key.Length -gt $closest.Length) {
+        $closest = $key
+      }
+    }
+  }
+
+  return $closest
+}
+
+
+
 function Set-Bookmark {
   <#
   .SYNOPSIS
@@ -89,7 +222,23 @@ function Set-Bookmark {
       Set-Location $bookmarks[$Name]
     }
     else {
-      Write-Error "$Name not found"
+      # Use the Get-ClosestMatch function to find the nearest match
+      $suggestedName = Get-ClosestMatch -input $Name -bookmarks $bookmarks
+      if ($suggestedName) {
+        Write-Host "'$Name' not found. Did you mean '$suggestedName'?" -ForegroundColor Yellow
+        $key = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown').VirtualKeyCode
+        if ($key -eq 13) {
+          # Enter key pressed
+          Set-Location $bookmarks[$suggestedName]
+        }
+        elseif ($key -eq 27) {
+          # Esc key pressed
+          Write-Host "Canceled" -ForegroundColor DarkYellow
+        }
+      }
+      else {
+        Write-Error "'$Name' not found and no close matches were found."
+      }
     }
   }
 }
