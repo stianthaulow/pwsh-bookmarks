@@ -1,4 +1,4 @@
-$configPath = "$Env:USERPROFILE\.config\Set-Bookmark\bookmarks.json"
+$bookmarksPath = "$Env:USERPROFILE\.config\Set-Bookmark\bookmarks.json"
 
 $qwertyProximity = @{
   'q' = @('w', 'a')
@@ -131,7 +131,7 @@ function Get-ClosestMatch {
   return $closest
 }
 
-function Open-ConfigFile {
+function Open-BookmarksFile {
   param (
     [string]$filePath
   )
@@ -186,7 +186,7 @@ function Set-Bookmark {
   List all bookmarks. Alias: l
 
   .PARAMETER Edit
-  Open the bookmarks configuration file in the default text editor. Alias: e
+  Open the bookmarks file in the default text editor. Alias: e
 
   .EXAMPLE
   Set-Bookmark p C:\Projects -Add
@@ -202,7 +202,7 @@ function Set-Bookmark {
 
   .EXAMPLE
   Set-Bookmark -Edit
-  Opens the bookmarks configuration file in the default editor.
+  Opens the bookmarks file in the default editor.
   #>
 
   [CmdletBinding()]
@@ -222,21 +222,44 @@ function Set-Bookmark {
 
   # Handle the -Edit switch
   if ($Edit) {
-    if (Test-Path $configPath) {
-      Open-ConfigFile -filePath $configPath
+    if (Test-Path $bookmarksPath) {
+      Open-BookmarksFile -filePath $bookmarksPath
     }
     else {
-      Write-Error "Configuration file not found at '$configPath'."
+      Write-Error "Bookmarks file not found at '$bookmarksPath'."
     }
     return
   }
-  if (-not (Test-Path $configPath)) {
-    New-Item -Path $configPath -ItemType File -Force | Out-Null
-    @{d = "C:\Dev" } | ConvertTo-Json | Set-Content $configPath
+
+  # Initialize the bookmarks file if it doesn't exist
+  if (-not (Test-Path $bookmarksPath)) {
+    New-Item -Path $bookmarksPath -ItemType File -Force | Out-Null
+    @{ d = "C:\Dev" } | ConvertTo-Json | Set-Content $bookmarksPath
   }
 
-  $bookmarks = Get-Content $configPath -Raw | ConvertFrom-Json -AsHashtable
+  # Load bookmarks
+  try {
+    $bookmarks = Get-Content $bookmarksPath -Raw | ConvertFrom-Json -AsHashtable
+  }
+  catch {
+    Write-Error "Failed to read the bookmarks file: $($_.Exception.Message)"
+    return
+  }
 
+  # List booksmarks (default action if no switches are provided)
+  if ($List -or $PSBoundParameters.Count -eq 0) {
+    if ($bookmarks.Count -eq 0) {
+      Write-Host "No bookmarks found." -ForegroundColor Yellow
+    }
+    else {
+      $bookmarks | Format-Table -AutoSize `
+      @{Label = "Name"; Expression = { $_.Key } }, `
+      @{Label = "Path"; Expression = { $_.Value } }
+    }
+    return
+  }
+
+  # Add a new bookmark
   if ($Add) {
     if ($bookmarks.ContainsKey($Name)) {
       Write-Host "'$Name' already exists." -ForegroundColor Yellow
@@ -246,31 +269,40 @@ function Set-Bookmark {
       }
     }
     $bookmarks[$Name] = $Path
-    $bookmarks | ConvertTo-Json | Set-Content $configPath
-    Write-Host "$Name -> $Path added" -ForegroundColor Green
+    try {
+      $bookmarks | ConvertTo-Json | Set-Content $bookmarksPath
+      Write-Host "$Name -> $Path added" -ForegroundColor Green
+    }
+    catch {
+      Write-Error "Failed to write to the configuration file: $($_.Exception.Message)"
+    }
     return
   }
 
-  if ($List -or $PSBoundParameters.Count -eq 0) {
-    $bookmarks | Format-Table -AutoSize `
-    @{Label = "Name"; Expression = { $_.Key } }, `
-    @{Label = "Path"; Expression = { $_.Value } }
-    return
-  }
-
+  # Remove a bookmark 
   if ($Remove) {
-    $bookmarks.Remove($Name)
-    $bookmarks | ConvertTo-Json | Set-Content $configPath
-    Write-Host "$Name removed" -ForegroundColor Yellow
+    if ($bookmarks.ContainsKey($Name)) {
+      $bookmarks.Remove($Name)
+      try {
+        $bookmarks | ConvertTo-Json | Set-Content $bookmarksPath
+        Write-Host "$Name removed" -ForegroundColor Yellow
+      }
+      catch {
+        Write-Error "Failed to write to the configuration file: $($_.Exception.Message)"
+      }
+    }
+    else {
+      Write-Host "'$Name' does not exist." -ForegroundColor Yellow
+    }
     return
   }
 
+  # Navigate to a bookmark
   if ($Name) {
     if ($bookmarks.ContainsKey($Name)) {
       Set-Location $bookmarks[$Name]
     }
     else {
-      # Use the Get-ClosestMatch function to find the nearest match
       $suggestedName = Get-ClosestMatch -input $Name -bookmarks $bookmarks
       if ($suggestedName) {
         Write-Host "'$Name' not found. Did you mean '$suggestedName'?" -ForegroundColor Yellow
@@ -295,8 +327,8 @@ Register-ArgumentCompleter -CommandName Set-Bookmark -ParameterName Name -Script
   param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
 
   try {
-    if (Test-Path $configPath) {
-      $bookmarks = Get-Content $configPath -Raw | ConvertFrom-Json -AsHashtable
+    if (Test-Path $bookmarksPath) {
+      $bookmarks = Get-Content $bookmarksPath -Raw | ConvertFrom-Json -AsHashtable
       $bookmarks.Keys | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
         [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
       }
