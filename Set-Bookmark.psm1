@@ -131,6 +131,35 @@ function Get-ClosestMatch {
   return $closest
 }
 
+function Open-ConfigFile {
+  param (
+    [string]$filePath
+  )
+
+  # Try to open the config file in default editor
+  if ($env:EDITOR) {
+    try {
+      Start-Process -FilePath $env:EDITOR -ArgumentList "`"$filePath`"" -NoNewWindow -ErrorAction Stop
+      return
+    }
+    catch {
+      Write-Error "Failed to open the editor specified in EDITOR environment variable: $($_.Exception.Message)"
+      return
+    }
+  }
+
+  # Try to open the config file in Visual Studio Code
+  try {
+    $codePath = (Get-Command code -ErrorAction Stop).Source
+    Start-Process -FilePath $codePath -ArgumentList "`"$filePath`"" -NoNewWindow -ErrorAction Stop
+    return
+  }
+  catch {
+    # 'code' is not installed
+  }
+
+  Write-Error "No editor found. Please set the EDITOR environment variable or install Visual Studio Code."
+}
 
 
 function Set-Bookmark {
@@ -156,6 +185,9 @@ function Set-Bookmark {
   .PARAMETER List
   List all bookmarks. Alias: l
 
+  .PARAMETER Edit
+  Open the bookmarks configuration file in the default text editor. Alias: e
+
   .EXAMPLE
   Set-Bookmark p C:\Projects -Add
   Adds a bookmark named 'p' for the path 'C:\Projects'
@@ -167,7 +199,11 @@ function Set-Bookmark {
   .EXAMPLE
   Set-Bookmark -List
   Lists all bookmarks
-#>
+
+  .EXAMPLE
+  Set-Bookmark -Edit
+  Opens the bookmarks configuration file in the default editor.
+  #>
 
   [CmdletBinding()]
   param(
@@ -179,9 +215,21 @@ function Set-Bookmark {
     [Alias("r", "d", "Delete")]
     [switch]$Remove,
     [Alias("l")]
-    [switch]$List
+    [switch]$List,
+    [Alias("e")]
+    [switch]$Edit
   )
 
+  # Handle the -Edit switch
+  if ($Edit) {
+    if (Test-Path $configPath) {
+      Open-ConfigFile -filePath $configPath
+    }
+    else {
+      Write-Error "Configuration file not found at '$configPath'."
+    }
+    return
+  }
   if (-not (Test-Path $configPath)) {
     New-Item -Path $configPath -ItemType File -Force | Out-Null
     @{d = "C:\Dev" } | ConvertTo-Json | Set-Content $configPath
