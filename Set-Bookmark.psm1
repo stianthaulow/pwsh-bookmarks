@@ -252,9 +252,18 @@ function Set-Bookmark {
       Write-Host "No bookmarks found." -ForegroundColor Yellow
     }
     else {
-      $bookmarks | Format-Table -AutoSize `
-      @{Label = "Name"; Expression = { $_.Key } }, `
-      @{Label = "Path"; Expression = { $_.Value } }
+      # Group bookmarks by Path
+      $groupedBookmarks = $bookmarks.GetEnumerator() | Group-Object -Property Value
+
+      # Create a custom object for each group with concatenated Names
+      $output = $groupedBookmarks | ForEach-Object {
+        [PSCustomObject]@{
+          Names = ($_.Group | Select-Object -ExpandProperty Key) -join ", "
+          Path  = $_.Name
+        }
+      }
+
+      $output | Format-Table -AutoSize
     }
     return
   }
