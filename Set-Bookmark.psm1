@@ -313,7 +313,7 @@ function Set-Bookmark {
         }
         elseif ($key -eq 27) {
           # Esc key pressed
-          Write-Host "Canceled" -ForegroundColor DarkYellow
+          Return
         }
       }
       else {
