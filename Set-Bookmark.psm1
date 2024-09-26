@@ -217,8 +217,15 @@ function Set-Bookmark {
     [Alias("l")]
     [switch]$List,
     [Alias("e")]
-    [switch]$Edit
+    [switch]$Edit,
+    [Alias("h")]
+    [switch]$Help
   )
+
+  if ($Help) {
+    Get-Help Set-Bookmark
+    Return
+  }
 
   # Handle the -Edit switch
   if ($Edit) {
